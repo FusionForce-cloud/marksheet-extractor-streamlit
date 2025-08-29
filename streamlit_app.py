@@ -1,63 +1,79 @@
-import os
 import streamlit as st
-from PyPDF2 import PdfReader
-from openai import OpenAI
+import openai
+import pdfplumber
+import os
+import re
 
-# Load API key from environment variable
-API_KEY = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=API_KEY)
+# Load API key from Streamlit secrets
+API_KEY = st.secrets["OPENAI_API_KEY"]
+openai.api_key = API_KEY
 
-st.set_page_config(page_title="AI Marksheet Extractor", layout="wide")
+# Function to extract text from PDF
+def extract_text_from_pdf(file):
+    text = ""
+    with pdfplumber.open(file) as pdf:
+        for page in pdf.pages:
+            text += page.extract_text() + "\n"
+    return text
 
-st.title("📄 AI-Based Marksheet Extractor")
-st.write("Upload a marksheet (PDF) and extract candidate details + subject scores in JSON.")
+# Function to clean and format extracted JSON from LLM response
+def extract_json_from_response(response_text):
+    try:
+        # Find JSON-like structure in response
+        json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+        if json_match:
+            return json_match.group()
+        else:
+            return "{}"
+    except:
+        return "{}"
 
-# Upload PDF
-uploaded_file = st.file_uploader("Upload Marksheet (PDF)", type=["pdf"])
+# Function to query OpenAI for structured data extraction
+def extract_marksheet_details(text):
+    prompt = f"""
+    Extract the following details from the given marksheet text and return as JSON:
+    - Candidate Name
+    - Father’s/Mother’s Name
+    - Roll Number
+    - Registration Number
+    - Date of Birth
+    - Exam Year
+    - Board/University
+    - Institution
+    - Subject-wise marks (Subject, Marks Obtained, Max Marks, Result)
+
+    Text:
+    {text}
+    """
+
+    response = openai.chat.completions.create(
+        model="gpt-4o-mini",  # You can also use "gpt-4o" or "gpt-3.5-turbo"
+        messages=[
+            {"role": "system", "content": "You are an information extraction assistant."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0
+    )
+
+    raw_output = response.choices[0].message.content
+    return extract_json_from_response(raw_output)
+
+# Streamlit UI
+st.title("📄 Marksheet Data Extractor")
+st.write("Upload a marksheet (PDF) and extract structured details in JSON format.")
+
+uploaded_file = st.file_uploader("Upload Marksheet PDF", type=["pdf"])
 
 if uploaded_file:
-    # Read PDF text
-    pdf_reader = PdfReader(uploaded_file)
-    text = "\n".join([page.extract_text() for page in pdf_reader.pages if page.extract_text()])
+    with st.spinner("Extracting text from PDF..."):
+        extracted_text = extract_text_from_pdf(uploaded_file)
 
-    st.subheader("📖 Extracted Raw Text")
-    st.text_area("Raw Text", text, height=200)
+    st.subheader("Extracted Text")
+    st.text_area("Raw Text", extracted_text, height=200)
 
-    if st.button("🔍 Extract Details"):
-        try:
-            # Prompt for extraction
-            prompt = f"""
-            You are an AI marksheet parser. Extract all details from the following marksheet text
-            and return JSON strictly in this structure:
+    if st.button("Extract Details"):
+        with st.spinner("Extracting details using AI..."):
+            extracted_json = extract_marksheet_details(extracted_text)
 
-            {{
-              "Candidate Name": "",
-              "Father's Name": "",
-              "Mother's Name": "",
-              "Roll No": "",
-              "Registration No": "",
-              "DOB": "",
-              "Exam Year": "",
-              "Board/University": "",
-              "Institution": "",
-              "Subjects": [
-                  {{"Subject": "", "Marks": "", "Max Marks": "", "Grade": ""}}
-              ]
-            }}
-
-            Text:
-            {text}
-            """
-
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0
-            )
-
-            result = response.choices[0].message.content
-            st.subheader("✅ Extracted JSON")
-            st.json(result)
-
-        except Exception as e:
-            st.error(f"Error: {e}")
+        st.subheader("Extracted JSON")
+        st.json(extracted_json)
