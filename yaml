@@ -1,0 +1,9 @@
+
+---
+
+# How to push to GitHub (exact commands to run locally or in Colab)
+1. Initialize & commit:
+```bash
+git init
+git add .
+git commit -m "Initial commit - marksheet extractor streamlit"
