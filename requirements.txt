@@ -1,6 +1,6 @@
-fastapi
-uvicorn
-openai
+streamlit
 pdfplumber
-python-multipart
-pillow
+pytesseract
+Pillow
+openai
+python-dotenv
