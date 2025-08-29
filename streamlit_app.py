@@ -1,17 +1,16 @@
+import os
 import streamlit as st
 import pdfplumber
-import pytesseract
-from PIL import Image
-import openai
-import io
+from google.cloud import aiplatform
 
-# Configure OpenAI
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+# Set path to your Google service account JSON key
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = st.secrets["GOOGLE_APPLICATION_CREDENTIALS"]
 
-st.title("📑 Marksheet Extractor")
-st.write("Upload a marksheet (PDF/Image) to extract candidate details and subject-wise marks.")
+st.set_page_config(page_title="AI Marksheet Extractor (Google)", layout="wide")
+st.title("📄 AI-Based Marksheet Extractor (Google)")
+st.write("Upload a marksheet (PDF) to extract candidate details + subject scores in JSON.")
 
-uploaded_file = st.file_uploader("Upload File", type=["pdf", "png", "jpg", "jpeg"])
+uploaded_file = st.file_uploader("Upload Marksheet (PDF)", type=["pdf"])
 
 def extract_text_from_pdf(file):
     text = ""
@@ -20,47 +19,49 @@ def extract_text_from_pdf(file):
             text += page.extract_text() + "\n"
     return text
 
-def extract_text_from_image(file):
-    image = Image.open(file)
-    return pytesseract.image_to_string(image)
+def extract_fields_with_google_ai(text):
+    try:
+        client = aiplatform.gapic.PredictionServiceClient()
 
-def extract_fields_with_ai(text):
-    prompt = f"""
-    Extract the following details from the marksheet text below:
-    - Candidate Name
-    - Father's/Mother's Name
-    - Roll Number
-    - Registration Number
-    - Date of Birth
-    - Exam Year
-    - Board/University
-    - Institution
-    - Subject-wise Marks
+        endpoint = st.secrets["GOOGLE_AI_ENDPOINT"]  # Vertex AI endpoint
+        instance = {
+            "content": f"""
+            You are an AI marksheet parser. Extract all details from the following marksheet text
+            and return JSON strictly in this structure:
 
-    Provide the result strictly in JSON format with confidence scores for each field.
+            {{
+              "Candidate Name": "",
+              "Father's Name": "",
+              "Mother's Name": "",
+              "Roll No": "",
+              "Registration No": "",
+              "DOB": "",
+              "Exam Year": "",
+              "Board/University": "",
+              "Institution": "",
+              "Subjects": [
+                  {{"Subject": "", "Marks": "", "Max Marks": "", "Grade": ""}}
+              ]
+            }}
 
-    Marksheet Text:
-    {text}
-    """
+            Text:
+            {text}
+            """
+        }
 
-    response = openai.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role": "user", "content": prompt}]
-    )
+        response = client.predict(endpoint=endpoint, instances=[instance])
+        return response.predictions[0]
+    except Exception as e:
+        st.error(f"⚠️ Google API Error: {e}")
+        return None
 
-    return response.choices[0].message["content"]
+if uploaded_file:
+    raw_text = extract_text_from_pdf(uploaded_file)
+    st.subheader("📖 Extracted Raw Text")
+    st.text_area("Raw Text", raw_text, height=200)
 
-if uploaded_file is not None:
-    if uploaded_file.type == "application/pdf":
-        text = extract_text_from_pdf(uploaded_file)
-    else:
-        text = extract_text_from_image(uploaded_file)
-
-    st.subheader("Extracted Text:")
-    st.text_area("Raw Text", text, height=200)
-
-    if st.button("Extract Details"):
-        with st.spinner("Extracting details..."):
-            result = extract_fields_with_ai(text)
-        st.subheader("Extracted JSON:")
-        st.json(result)
+    if st.button("🔍 Extract Details"):
+        extracted_json = extract_fields_with_google_ai(raw_text)
+        if extracted_json:
+            st.subheader("✅ Extracted JSON")
+            st.json(extracted_json)
