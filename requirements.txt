@@ -1,4 +1,6 @@
 fastapi
 uvicorn
-pdfplumber
 openai
+pdfplumber
+python-multipart
+pillow
