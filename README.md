@@ -18,3 +18,7 @@ This repository contains a Streamlit app that performs OCR on a marksheet image/
    python -m venv venv
    source venv/bin/activate
    pip install -r requirements.txt
+
+   ## Can try this at:
+
+   https://marksheet-extractor-app-x3tvdcgm3kprng6bxr44uq.streamlit.app/
