@@ -9,6 +9,9 @@ st.set_page_config(page_title="AI Marksheet Reader", page_icon="📄", layout="c
 st.title("📄 AI Marksheet Reader")
 st.write("Upload your marksheet (PDF/Image) and extract student details using AI.")
 
+st.write("🔑 Keys available:", list(st.secrets.keys()))
+st.write("API key (first 5 chars):", st.secrets["OPENAI_API_KEY"][:5])
+
 # File uploader
 uploaded_file = st.file_uploader("Upload your marksheet", type=["png", "jpg", "jpeg", "pdf"])
 
@@ -40,6 +43,7 @@ if uploaded_file is not None:
     Format the output as JSON.
     """
 
+    
     try:
         # Call OpenAI API
         response = openai.Completion.create(
@@ -55,3 +59,4 @@ if uploaded_file is not None:
 
     except Exception as e:
         st.error(f"❌ Error: {e}")
+        
