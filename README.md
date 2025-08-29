@@ -12,13 +12,13 @@ This repository contains a Streamlit app that performs OCR on a marksheet image/
 - An OpenAI API key (set as `OPENAI_API_KEY` in Streamlit secrets)
 - Streamlit Cloud account (or run locally)
 
+
+## Can try this at:
+https://marksheet-extractor-app-x3tvdcgm3kprng6bxr44uq.streamlit.app/
+  
 ## How to run locally (recommended for development)
 1. Create and activate a virtualenv:
    ```bash
    python -m venv venv
    source venv/bin/activate
    pip install -r requirements.txt
-
-   ## Can try this at:
-
-   https://marksheet-extractor-app-x3tvdcgm3kprng6bxr44uq.streamlit.app/
