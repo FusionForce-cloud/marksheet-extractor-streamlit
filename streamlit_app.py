@@ -1,59 +1,76 @@
-# streamlit_app.py
 import streamlit as st
-from app.ocr import save_uploadedfile, ocr_file
-from app.extractor import extract_raw
-from app.llm_client import call_openai_normalize
+import openai
+import requests
+import base64
 import json
-from PIL import Image, ImageDraw
-import io
 
-st.set_page_config(page_title="Marksheet Extractor", layout="wide")
+# Google Vision API
+def google_ocr(image_file, api_key):
+    content = base64.b64encode(image_file.read()).decode("utf-8")
+    body = {
+        "requests": [
+            {
+                "image": {"content": content},
+                "features": [{"type": "TEXT_DETECTION"}],
+            }
+        ]
+    }
+    url = f"https://vision.googleapis.com/v1/images:annotate?key={api_key}"
+    response = requests.post(url, json=body)
+    result = response.json()
 
-st.title("Marksheet Extractor (Streamlit)")
-st.markdown("Upload an image or PDF of a marksheet. The app will run OCR, pre-extract fields, and call an LLM (OpenAI) to normalize and return JSON with confidence scores.")
-
-with st.sidebar:
-    st.header("Settings")
-    model = st.selectbox("LLM model (OpenAI)", options=["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"], index=0)
-    use_gpu = st.checkbox("Use EasyOCR GPU (not available on Streamlit Cloud)", value=False)
-    st.info("Set OPENAI_API_KEY in Streamlit Secrets (section: [secrets]) before running. See README for instructions.")
-
-uploaded = st.file_uploader("Upload marksheet (JPG/PNG/PDF)", type=["png","jpg","jpeg","pdf"])
-if uploaded is not None:
     try:
-        st.info("Saving file...")
-        path = save_uploadedfile(uploaded)
-        st.info("Running OCR (EasyOCR)...")
-        pages = ocr_file(path, use_gpu=use_gpu)
-        st.success(f"OCR completed — {len(pages)} page(s)")
+        return result["responses"][0]["fullTextAnnotation"]["text"]
+    except Exception:
+        return "No text detected."
 
-        st.info("Running pre-extraction heuristics...")
-        raw = extract_raw(pages)
-        st.json(raw, expanded=False)
+# OpenAI OCR (using GPT-4o-mini with image input)
+def openai_ocr(image_file, api_key):
+    openai.api_key = api_key
 
-        st.info("Calling LLM to normalize and format JSON...")
-        with st.spinner("Contacting OpenAI..."):
-            normalized = call_openai_normalize(raw, model=model)
-        st.success("LLM returned structured JSON")
+    # Convert to base64
+    image_b64 = base64.b64encode(image_file.read()).decode("utf-8")
 
-        st.subheader("Structured JSON output")
-        st.json(normalized)
+    response = openai.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are an OCR assistant. Extract text accurately."},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Extract text from this image:"},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}}
+                ]
+            }
+        ],
+        max_tokens=500
+    )
+    return response.choices[0].message["content"]
 
-        # download button
-        st.download_button("Download JSON", json.dumps(normalized, indent=2), file_name="marksheet_extraction.json", mime="application/json")
+# Streamlit UI
+st.title("📑 OCR App (OpenAI + Google Vision)")
 
-        # visualize first page with bounding boxes if available
-        if pages:
-            st.subheader("Page 1 preview with token boxes")
-            img = Image.open(pages[0]['image_path'])
-            draw = ImageDraw.Draw(img)
-            for t in pages[0]['tokens']:
-                bbox = t.get('bbox')
-                if bbox:
-                    draw.rectangle(bbox, outline="red", width=2)
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            st.image(buf.getvalue(), use_column_width=True)
+uploaded_file = st.file_uploader("Upload an image (JPG/PNG)", type=["jpg", "jpeg", "png"])
 
-    except Exception as e:
-        st.error(f"Error: {e}")
+if uploaded_file:
+    st.image(uploaded_file, caption="Uploaded Image", use_column_width=True)
+
+    if st.button("Run OCR"):
+        text_result = None
+
+        if "OPENAI_API_KEY" in st.secrets:
+            st.info("Using OpenAI OCR...")
+            uploaded_file.seek(0)  # reset file pointer
+            text_result = openai_ocr(uploaded_file, st.secrets["OPENAI_API_KEY"])
+
+        elif "GOOGLE_API_KEY" in st.secrets:
+            st.info("Using Google Vision OCR...")
+            uploaded_file.seek(0)  # reset file pointer
+            text_result = google_ocr(uploaded_file, st.secrets["GOOGLE_API_KEY"])
+
+        else:
+            st.error("No API key found in secrets. Please add OPENAI_API_KEY or GOOGLE_API_KEY.")
+
+        if text_result:
+            st.subheader("Extracted Text")
+            st.text_area("Result", text_result, height=300)
