@@ -1,66 +1,63 @@
-import streamlit as st
+# fastapi_app_openai.py
+
+import os
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import JSONResponse
 import pdfplumber
-import pytesseract
-from PIL import Image
 import openai
-import io
 
-# Configure OpenAI
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+# Load OpenAI API key from environment variable
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-st.title("📑 Marksheet Extractor")
-st.write("Upload a marksheet (PDF/Image) to extract candidate details and subject-wise marks.")
+app = FastAPI(title="AI Marksheet Extractor API", description="Upload PDF marksheets and get extracted JSON.")
 
-uploaded_file = st.file_uploader("Upload File", type=["pdf", "png", "jpg", "jpeg"])
+def call_openai(prompt: str):
+    """Call OpenAI ChatCompletion API."""
+    response = openai.ChatCompletion.create(
+        model="gpt-4o-mini",  # or "gpt-3.5-turbo"
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0
+    )
+    return response.choices[0].message.content
 
-def extract_text_from_pdf(file):
+@app.post("/extract")
+async def extract_marksheet(file: UploadFile = File(...)):
+    if file.content_type != "application/pdf":
+        return JSONResponse(status_code=400, content={"error": "Only PDF files are supported"})
+
+    # Read PDF text
     text = ""
-    with pdfplumber.open(file) as pdf:
+    with pdfplumber.open(file.file) as pdf:
         for page in pdf.pages:
             text += page.extract_text() + "\n"
-    return text
 
-def extract_text_from_image(file):
-    image = Image.open(file)
-    return pytesseract.image_to_string(image)
-
-def extract_fields_with_ai(text):
+    # Prepare prompt for OpenAI
     prompt = f"""
-    Extract the following details from the marksheet text below:
-    - Candidate Name
-    - Father's/Mother's Name
-    - Roll Number
-    - Registration Number
-    - Date of Birth
-    - Exam Year
-    - Board/University
-    - Institution
-    - Subject-wise Marks
+    You are an AI marksheet parser. Extract all details from the following marksheet text
+    and return JSON strictly in this structure:
 
-    Provide the result strictly in JSON format with confidence scores for each field.
+    {{
+      "Candidate Name": "",
+      "Father's Name": "",
+      "Mother's Name": "",
+      "Roll No": "",
+      "Registration No": "",
+      "DOB": "",
+      "Exam Year": "",
+      "Board/University": "",
+      "Institution": "",
+      "Subjects": [
+          {{"Subject": "", "Marks": "", "Max Marks": "", "Grade": ""}}
+      ]
+    }}
 
-    Marksheet Text:
+    Text:
     {text}
     """
 
-    response = openai.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
+    try:
+        result = call_openai(prompt)
+        return JSONResponse(content=result)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
-    return response.choices[0].message["content"]
-
-if uploaded_file is not None:
-    if uploaded_file.type == "application/pdf":
-        text = extract_text_from_pdf(uploaded_file)
-    else:
-        text = extract_text_from_image(uploaded_file)
-
-    st.subheader("Extracted Text:")
-    st.text_area("Raw Text", text, height=200)
-
-    if st.button("Extract Details"):
-        with st.spinner("Extracting details..."):
-            result = extract_fields_with_ai(text)
-        st.subheader("Extracted JSON:")
-        st.json(result)
